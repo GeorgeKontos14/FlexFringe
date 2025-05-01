@@ -78,6 +78,7 @@ public:
 
     /* find refinements */
     refinement_set* get_possible_refinements();
+    refinement_list* get_possible_refinements_list();
     refinement* get_best_refinement();
 
     refinement* test_splits(apta_node* blue);

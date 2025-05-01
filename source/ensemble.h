@@ -12,5 +12,6 @@
 
 
 void bagging(state_merger* merger, std::string output_file, int nr_estimators);
+std::vector<state_merger*> random_dfa(state_merger* merger, std::string output_file, int nr_estimators);
 
 #endif /* _ENSEMBLE_H_ */

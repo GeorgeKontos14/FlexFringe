@@ -192,6 +192,14 @@ void run() {
         LOG_S(INFO) << "Bagging mode selected, starting run";
 
         bagging(merger, OUTPUT_FILE,10);
+    } else if (OPERATION_MODE == "random") {
+        std::cout << "random mode selected" << std::endl;
+        eval->initialize_before_adding_traces();
+        id.add_traces_to_apta(the_apta);
+        eval->initialize_after_adding_traces(merger);
+        LOG_S(INFO) << "Random mode selected, starting run";
+
+        std::vector<state_merger*> mergers = random_dfa(merger, OUTPUT_FILE, 3);
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;
 
