@@ -1152,6 +1152,12 @@ void state_merger::print_json(const std::string& file_name)
     output1.close();
 }
 
+void state_merger::print_json(std::ostream& output)
+{
+    tojson();
+    output << json_output;
+}
+
 int state_merger::sink_type(apta_node* node){
     if(USE_SINKS)
         return node->data->sink_type();

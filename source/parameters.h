@@ -128,6 +128,7 @@ extern std::string OPERATION_MODE;
 extern std::string SAT_SOLVER;
 extern std::string APTA_FILE;
 extern std::string APTA_FILE2;
+extern std::string ENSEMBLE_FILE;
 
 extern std::string COMMAND_LINE;
 

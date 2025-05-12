@@ -488,6 +488,48 @@ void predict_trace(state_merger* m, std::ofstream& output, trace* tr){
     output << std::endl;
 }
 
+/**
+ * @Brief Calculates the type prediction of a single model for a single trace
+ *
+ * @param m The automation to be used for prediction
+ * @param tr The trace whose type should be predicted
+ * @return The type prediction of the automation for the given trace
+ */
+int predict_trace_type(state_merger* m, trace* tr) {
+    if(REVERSE_TRACES) tr->reverse();
+    state_sequence.clear();
+    score_sequence.clear();
+    align_sequence.clear();
+    ending_state = nullptr;
+    ending_tail = nullptr;
+
+    if(PREDICT_ALIGN) {
+        align(m, tr->get_head(), true, 1.0);
+    } else {
+        predict_trace_update_sequences(m, tr->get_head());
+    }
+
+    int type_predict = ending_state->get_data()->predict_type(ending_tail);
+
+    return type_predict;
+}
+
+/**
+ * @Brief Given a vector of predictions for the same trace, aggregates them using majority vote
+ *
+ * @param predictions The predictions to aggregate
+ * @return The most popular prediction
+ */
+int majority_vote(std::vector<int> predictions) {
+    int count_ones = 0;
+    for (int val: predictions) {
+        count_ones += val;
+    }
+
+    int count_zeros = predictions.size()-count_ones;
+
+    return (count_ones > count_zeros) ? 1: 0;
+}
 
 void predict(state_merger* m, inputdata& idat, std::ofstream& output){
     output << "row nr; abbadingo trace; state sequence; score sequence";
@@ -526,6 +568,46 @@ void predict_streaming(state_merger* m, parser& parser, reader_strategy& strateg
 
         // TODO: Deleting the traces should probably also invalidate the trace pointers in inputdata,
         //  but since we have a separate inputdata local to this function it is sort of ok here?
+        trace->erase();
+        trace_maybe = idat.read_trace(parser, strategy);
+    }
+}
+
+/**
+ * @Brief Performs ensemble predictions using majority vote.
+ * Each automaton in the ensemble makes a prediction of its own, and then predictions are aggregated by majority vote
+ * For each automaton, this method only calculates the predicted type.
+ *
+ * @param mergers The list of automata to use for predictions
+ * @param parser The object traversing the traces that should be predicted
+ * @param strategy The way the parser should traverse the traces
+ * @param output The output stream to print the predictions in
+ */
+void predict_streaming_random_ensemble(std::vector<state_merger*> mergers, parser& parser, reader_strategy& strategy, std::ofstream& output) {
+    output << "row nr; abbadingo trace; trace type; predicted trace type";
+    output << std::endl;
+
+    inputdata idat = inputdata::with_alphabet_from(*inputdata_locator::get());
+
+    std::optional<trace*> trace_maybe = idat.read_trace(parser, strategy);
+
+    int rownr = 0;
+    while (trace_maybe) {
+        auto trace = *trace_maybe;
+        std::vector<int> tr_predictions;
+        for (state_merger* m: mergers) {
+            int tr_type = predict_trace_type(m, trace);
+            tr_predictions.push_back(tr_type);
+        }
+
+        int ensemble_prediction = majority_vote(tr_predictions);
+
+        output << rownr << "; " << "\"" << trace->to_string() << "\"";
+        rownr++;
+        output << "; " << inputdata_locator::get()->string_from_type(trace->get_type());
+        output << "; " << inputdata_locator::get()->string_from_type(ensemble_prediction);
+        output << std::endl;
+
         trace->erase();
         trace_maybe = idat.read_trace(parser, strategy);
     }

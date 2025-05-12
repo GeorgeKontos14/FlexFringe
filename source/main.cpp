@@ -62,6 +62,56 @@ void print_current_automaton(state_merger* merger, const std::string& output_fil
     }
 }
 
+/**
+ * @Brief Prints multiple automata into the same json file
+ *
+ * @param mergers the objects storing the automata
+ * @param output_file the file to print in
+ * @param append_string the suffix to add to the file
+ */
+void print_multiple_automata(std::vector<state_merger*> mergers, const std::string& output_file, const std::string& append_string) {
+    std::string dot_filename = output_file + append_string + ".random.dot";
+    std::string json_filename = output_file + append_string + ".random.json";
+
+    std::ofstream dot_out;
+    std::ofstream json_out;
+
+    if (OUTPUT_TYPE == "dot" || OUTPUT_TYPE == "both") {
+        dot_out.open(dot_filename, std::ios::app);
+    }
+
+    std::ostringstream json_stream;
+    json_stream << "{\n";
+
+    for (size_t i = 0; i < mergers.size(); i++) {
+        state_merger* merger = mergers[i];
+
+        if (OUTPUT_TYPE == "dot" || OUTPUT_TYPE == "both") {
+            dot_out << "// Automaton #" << i << std::endl;
+            merger -> print_dot(dot_out);
+            dot_out << "\n";
+        }
+
+        if (OUTPUT_TYPE == "json" || OUTPUT_TYPE == "both") {
+            merger->tojson();
+            json_stream << " \"Automaton " << i << "\": " << merger->json_output;
+            if (i != mergers.size() - 1) json_stream <<",";
+            json_stream << "\n";
+        }
+    }
+    json_stream << "}\n";
+
+    if (OUTPUT_TYPE == "dot" || OUTPUT_TYPE == "both") {
+        dot_out.close();
+    }
+
+    if (OUTPUT_TYPE == "json" || OUTPUT_TYPE == "both") {
+        json_out.open(json_filename);
+        json_out << json_stream.str();
+        json_out.close();
+    }
+}
+
 evaluation_function* get_evaluation(){
     evaluation_function *eval = nullptr;
     if(debugging_enabled){
@@ -136,6 +186,7 @@ void run() {
     }
 
     apta* the_apta = new apta();
+    std::vector<state_merger*> mergers;
     auto* merger = new state_merger(&id, eval, the_apta);
     the_apta->set_context(merger);
     eval->set_context(merger);
@@ -197,9 +248,12 @@ void run() {
         eval->initialize_before_adding_traces();
         id.add_traces_to_apta(the_apta);
         eval->initialize_after_adding_traces(merger);
+        print_current_automaton(merger, OUTPUT_FILE, ".init");
         LOG_S(INFO) << "Random mode selected, starting run";
 
-        std::vector<state_merger*> mergers = random_dfa(merger, OUTPUT_FILE, 3);
+        mergers = random_dfa(merger, 3);
+
+        print_multiple_automata(mergers, OUTPUT_FILE, ".final");
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;
 
@@ -247,6 +301,51 @@ void run() {
             }
 
             predict_streaming(merger, *parser, *strategy, output);
+        } else if (!ENSEMBLE_FILE.empty()) {
+            std::ifstream input_ensemble_stream(ENSEMBLE_FILE);
+            std::cerr << "reading enesmble file - " << ENSEMBLE_FILE << std::endl;
+
+            nlohmann::json all_automata_json;
+            input_ensemble_stream >> all_automata_json;
+            input_ensemble_stream.close();
+
+            std::vector<state_merger*> mergers;
+            apta* next_apta;
+
+            for (auto it = all_automata_json.items().begin(); it != all_automata_json.items().end(); ++it) {
+                const auto& value = it.value();
+
+                std::stringstream ss;
+                ss << value.dump();
+
+                next_apta = new apta();
+                next_apta -> read_json(ss);
+                auto* next_merger = new state_merger(&id, eval, next_apta);
+                next_apta->set_context(next_merger);
+                mergers.push_back(next_merger);
+            }
+
+            // Setup output file stream
+            std::ostringstream res_stream;
+            res_stream << ENSEMBLE_FILE << ".result";
+            std::ofstream output(res_stream.str().c_str());
+
+            std::ifstream input_stream(INPUT_FILE);
+            std::unique_ptr<parser> parser;
+            if(INPUT_FILE.ends_with(".csv")) {
+                parser = std::make_unique<csv_parser>(input_stream, csv::CSVFormat().trim({' '}));
+            } else {
+                parser = std::make_unique<abbadingoparser>(input_stream);
+            }
+
+            std::unique_ptr<reader_strategy> strategy;
+            if (SLIDING_WINDOW) {
+                strategy = std::make_unique<slidingwindow>(SLIDING_WINDOW_SIZE, SLIDING_WINDOW_STRIDE, SLIDING_WINDOW_TYPE);
+            } else {
+                strategy = std::make_unique<in_order>();
+            }
+
+            predict_streaming_random_ensemble(mergers, *parser, *strategy, output);
         } else {
             std::cerr << "require a json formatted apta file to make predictions" << std::endl;
         }
@@ -315,7 +414,7 @@ int main(int argc, char *argv[]){
     app.add_option("--output", OUTPUT_TYPE, "Switch between output in dot, json, or both (default) formats.");
     app.add_option("--logpath", LOG_PATH, "The path to write the flexfringe log file to. Defaults to \"flexfringe.log\"");
     app.set_config("--ini", default_file_name, "Read an ini file", false);
-    app.add_option("--mode", OPERATION_MODE, "batch (default), interactive, or stream depending on the mode of operation.");
+    app.add_option("--mode", OPERATION_MODE, "batch (default), interactive, random or stream depending on the mode of operation.");
     app.add_option("--heuristic-name,--heuristic_name", HEURISTIC_NAME, "Name of the merge heuristic to use; default count_driven. Use any heuristic in the evaluation directory. It is often beneficial to write your own, as heuristics are very application specific.")->required();
     app.add_option("--data-name,--data_name", DATA_NAME, "Name of the merge data class to use; default count_data. Use any heuristic in the evaluation directory.");
     app.add_option("--evalpar", EVALUATION_PARAMETERS, "string of key-value pairs for evaluation functions");
@@ -323,6 +422,7 @@ int main(int argc, char *argv[]){
     app.add_option("--satsolver", SAT_SOLVER, "Name of the SAT solver executable. Default=glucose.");
     app.add_option("--aptafile", APTA_FILE, "Name of the input file containing a previously learned automaton in json format. Note that you need to use the same evaluation function it was learned with.");
     app.add_option("--aptafile2", APTA_FILE2, "Name of the input file containing a previously learned automaton in json format. Note that you need to use the same evaluation function it was learned with.");
+    app.add_option("--ensemblefile", ENSEMBLE_FILE, "Name of the input file containing a previously learned ensemble in json format");
 
     app.add_option("--debug", DEBUGGING, "turn on debugging mode, printing includes pointers and find/union structure, more output");
     app.add_option("--addtails", ADD_TAILS, "Add tails to the states, used for splitting nodes. When not needed, it saves space and time to not add them. Default=1.");

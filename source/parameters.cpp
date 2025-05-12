@@ -18,6 +18,7 @@ std::string OPERATION_MODE = "greedy";
 std::string SAT_SOLVER = "";
 std::string APTA_FILE = "";
 std::string APTA_FILE2 = "";
+std::string ENSEMBLE_FILE = "";
 
 std::string COMMAND_LINE = "";
 

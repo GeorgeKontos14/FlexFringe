@@ -123,6 +123,7 @@ public:
     void print_dot(std::ostream& output);
 
     void print_json(const std::string& file_name);
+    void print_json(std::ostream& output);
 
     int get_num_merges();
 
