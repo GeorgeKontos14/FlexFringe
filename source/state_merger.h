@@ -79,6 +79,7 @@ public:
     /* find refinements */
     refinement_set* get_possible_refinements();
     refinement_list* get_possible_refinements_list();
+    refinement_vector* get_possible_refinements_vector();
     refinement* get_best_refinement();
 
     refinement* test_splits(apta_node* blue);
@@ -140,6 +141,8 @@ public:
     bool early_stop_merge(apta_node *left, apta_node *right, int depth, bool &val);
 
     void undo_split_single(apta_node *new_node, apta_node *old_node, tail *t);
+
+    state_merger* copy();
 };
 
 #endif /* _STATE_MERGER_H_ */

@@ -1060,6 +1060,85 @@ refinement_list* state_merger::get_possible_refinements_list(){
 }
 
 /**
+ * @brief Returns all possible refinements in a vector.
+ *
+ * Returns all refinements given the current sets of red and blue states
+ * behavior depends on input parameters
+ * the merge score is not considered, as this method is meant for random merge DFAs that use no suitability metric
+ * returns an empty vector if none exists (given the input parameters)
+ */
+refinement_vector* state_merger::get_possible_refinements_vector(){
+    auto* result = new refinement_vector();
+
+    state_set blue_its = state_set();
+    bool found_non_sink = false;
+
+    for (blue_state_iterator it = blue_state_iterator(aut->root); *it != nullptr; ++it){
+        if ((*it)->size != 0) blue_its.insert(*it);
+        if (sink_type(*it) == -1) found_non_sink = true;
+    }
+
+    if(!found_non_sink && !MERGE_SINKS){
+        return result;
+    }
+
+    for (auto it = blue_its.begin(); it != blue_its.end(); ++it) {
+        apta_node* blue = *it;
+        bool found = false;
+
+        if (found_non_sink && blue->is_sink()) continue;
+
+        if (!blue->is_sink()) {
+            if (dat->get_num_attributes() > 0) {
+                refinement* ref = test_splits(blue);
+                if (ref != nullptr) {
+                    result -> push_back(ref);
+                    found = true;
+                }
+            }
+        }
+
+        for (red_state_iterator it2 = red_state_iterator(aut -> root); *it2 != nullptr; ++it2) {
+            apta_node* red = *it2;
+
+            refinement* ref = test_merge(red,blue);
+            if (ref != nullptr) {
+                result -> push_back(ref);
+                found=true;
+            }
+        }
+
+        if (MERGE_BLUE_BLUE) {
+            for (auto blue2 : blue_its) {
+                if (blue == blue2) continue;
+                if (blue2->is_sink()) continue;
+
+                refinement* ref = test_merge(blue2,blue);
+                if (ref != nullptr) {
+                    result -> push_back(ref);
+                    found = true;
+                }
+            }
+        }
+
+        if (EXTEND_ANY_RED && !found && !blue->is_sink()) {
+            for (auto it3 : *result) it3->erase();
+            result->clear();
+            result->push_back(mem_store::create_extend_refinement(this, blue));
+            return result;
+        }
+
+        if (!found || EXTEND_SINKS || !blue->is_sink()) {
+            result -> push_back(mem_store::create_extend_refinement(this, blue));
+        }
+
+        if (MERGE_MOST_VISITED) break;
+    }
+
+    return result;
+}
+
+/**
  * @brief Returns the highest scoring refinement.
  * 
  * Returns the highest scoring refinement given the current sets of red and blue states
@@ -1181,4 +1260,18 @@ state_merger::~state_merger(){
 
 int state_merger::get_num_merges() {
     return num_merges;
+}
+
+/**
+ * @brief creates a copy of the object
+ * Note: it only works with the original apta, before performing any merges
+ *
+ * @return the copied state merger object
+ */
+state_merger* state_merger::copy() {
+    apta* the_apta = new apta();
+    dat->add_traces_to_apta(the_apta);
+    auto merger_clone = new state_merger(dat, eval, the_apta);
+    the_apta->set_context(merger_clone);
+    return merger_clone;
 }

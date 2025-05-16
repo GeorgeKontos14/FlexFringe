@@ -251,8 +251,7 @@ void run() {
         print_current_automaton(merger, OUTPUT_FILE, ".init");
         LOG_S(INFO) << "Random mode selected, starting run";
 
-        mergers = random_dfa(merger, 3);
-
+        mergers = tree_random_ensemble(merger, 3);
         print_multiple_automata(mergers, OUTPUT_FILE, ".final");
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;

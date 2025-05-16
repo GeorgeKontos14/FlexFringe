@@ -1,12 +1,13 @@
-#include <stdio.h>
-#include <sstream>
+#include "ensemble.h"
+
 #include <fstream>
 #include <cstdlib>
 #include <random>
 
 #include "refinement.h"
 #include "greedy.h"
-#include "parameters.h"
+
+#include "merge_tree.h"
 
 /** todo: work in progress */
 
@@ -69,17 +70,11 @@ std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
     std::vector<state_merger*> mergers;
 
     // Each loop iteration creates a new random estimator
-    // TODO: Parallelize(?)
-    // TODO: Find heuristic for creating as different DFAs as possible
     for(int i = 0; i < nr_estimators; ++i) {
         std::cout << "Building random estimator "<< i << std::endl;
 
         // Build the initial APTA again using the input data
-        // TODO: Faster/safer way
-        the_apta = new apta();
-        merger->get_dat()->add_traces_to_apta(the_apta);
-        state_merger* merger_clone = new state_merger(merger->get_dat(), merger->get_eval(), the_apta);
-        the_apta->set_context(merger_clone);
+        state_merger* merger_clone = merger->copy();
 
         // Generate all the possible changes to the initial APTA
         refs_list = merger_clone->get_possible_refinements_list();
@@ -114,4 +109,81 @@ std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
     }
 
     return mergers;
+}
+
+/**
+ * @brief Ensemble that chooses different merge sequences by creating a tree-like structure
+ * In case nr_estimators is larger than the number of possible minimal automata, fewer automata are returned
+ *
+ * @param merger The state merger object containing the initial APTA
+ * @param nr_estimators The number of random DFAs to generate
+ * @return A vector containing all the final random automata.
+ */
+std::vector<state_merger*> tree_random_ensemble(state_merger* merger, int nr_estimators) {
+    // Setup
+    std::vector<state_merger*> E;
+    std::queue<merge_tree*> skipped_nodes;
+    auto root = new merge_tree(nr_estimators);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    std::cout << "Entering Phase I" << std::endl;
+    // Phase I: First traversal allocation
+    std::vector<merge_tree*> level = {root};
+    while (!level.empty() && E.size() < nr_estimators) {
+        std::vector<merge_tree*> next_level;
+        for (merge_tree* node : level) {
+            if (node->get_is_leaf()) {
+                state_merger* cloned_merger = merger->copy();
+                node->perform_merges(cloned_merger);
+                E.push_back(cloned_merger);
+            } else {
+                node->initialize_children(merger);
+                auto [skipped_children, selected_children] = node->allocate_live();
+
+                for (merge_tree* child : skipped_children) {
+                    skipped_nodes.push(child);
+                }
+
+                for (merge_tree* child : selected_children) {
+                    next_level.push_back(child);
+                }
+            }
+        }
+        level = next_level;
+    }
+
+    std::cout << "Entering Phase II" << std::endl;
+    // Phase II: Allocation of remaining selections
+    int m = nr_estimators - E.size();
+    while(m > 0) {
+        if (skipped_nodes.empty()) {
+            break;
+        }
+        merge_tree* current_node = skipped_nodes.front();
+        skipped_nodes.pop();
+        while (!current_node->get_is_leaf()) {
+            current_node->initialize_children(merger);
+            int nr_children = current_node->get_children().size();
+            std::uniform_int_distribution<> dist(0, nr_children - 1);
+            int allocation = dist(gen);
+            int j = 0;
+            while (j < nr_children && skipped_nodes.size() < m) {
+                if (j == allocation) {
+                    continue;
+                }
+                skipped_nodes.push(current_node->get_children()[j]);
+                j++;
+            }
+            current_node = current_node->get_children()[allocation];
+        }
+        state_merger* merger_clone = merger->copy();
+        current_node->perform_merges(merger_clone);
+        E.push_back(merger_clone);
+        m--;
+    }
+
+    delete root;
+
+    return E;
 }

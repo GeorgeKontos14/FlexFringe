@@ -16,6 +16,7 @@ class extend_refinement;
 struct score_compare;
 struct ref_compare;
 
+typedef std::vector<refinement*> refinement_vector;
 typedef std::list<refinement*> refinement_list;
 typedef std::set<refinement*, score_compare > refinement_set;
 typedef std::set<refinement*, ref_compare > refinement_store;
