@@ -186,7 +186,6 @@ void run() {
     }
 
     apta* the_apta = new apta();
-    std::vector<state_merger*> mergers;
     auto* merger = new state_merger(&id, eval, the_apta);
     the_apta->set_context(merger);
     eval->set_context(merger);
@@ -251,8 +250,7 @@ void run() {
         print_current_automaton(merger, OUTPUT_FILE, ".init");
         LOG_S(INFO) << "Random mode selected, starting run";
 
-        mergers = tree_random_ensemble(merger, 3);
-        print_multiple_automata(mergers, OUTPUT_FILE, ".final");
+        tree_random_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;
 
@@ -267,40 +265,7 @@ void run() {
     } else if(OPERATION_MODE == "predict") {
         std::cout << "predict mode selected" << std::endl;
         LOG_S(INFO) << "Predict mode selected, starting run";
-
-        if(!APTA_FILE.empty()){
-
-            // First, we read the apta file into the global inputdata, so we can obtain the alphabet mapping
-            std::ifstream input_apta_stream(APTA_FILE);
-            std::cerr << "reading apta file - " << APTA_FILE << std::endl;
-            the_apta->read_json(input_apta_stream);
-
-            // Setup output file stream
-            std::ostringstream res_stream;
-            res_stream << APTA_FILE << ".result";
-            std::ofstream output(res_stream.str().c_str());
-
-            // We stream the to predict traces into inputdata one by one to save memory
-            // Set up the parser for the input stream
-            std::ifstream input_stream(INPUT_FILE);
-            std::unique_ptr<parser> parser;
-            if(INPUT_FILE.ends_with(".csv")) {
-                parser = std::make_unique<csv_parser>(input_stream, csv::CSVFormat().trim({' '}));
-            } else {
-                parser = std::make_unique<abbadingoparser>(input_stream);
-            }
-
-            // Set up the reading strategy. Currently only sliding window and in-order traces are supported
-            // TODO: add support for sentinel symbol reading strategy
-            std::unique_ptr<reader_strategy> strategy;
-            if (SLIDING_WINDOW) {
-                strategy = std::make_unique<slidingwindow>(SLIDING_WINDOW_SIZE, SLIDING_WINDOW_STRIDE, SLIDING_WINDOW_TYPE);
-            } else {
-                strategy = std::make_unique<in_order>();
-            }
-
-            predict_streaming(merger, *parser, *strategy, output);
-        } else if (!ENSEMBLE_FILE.empty()) {
+        if (!ENSEMBLE_FILE.empty()) {
             std::ifstream input_ensemble_stream(ENSEMBLE_FILE);
             std::cerr << "reading enesmble file - " << ENSEMBLE_FILE << std::endl;
 
@@ -345,6 +310,38 @@ void run() {
             }
 
             predict_streaming_random_ensemble(mergers, *parser, *strategy, output);
+        } else if(!APTA_FILE.empty()){
+
+            // First, we read the apta file into the global inputdata, so we can obtain the alphabet mapping
+            std::ifstream input_apta_stream(APTA_FILE);
+            std::cerr << "reading apta file - " << APTA_FILE << std::endl;
+            the_apta->read_json(input_apta_stream);
+
+            // Setup output file stream
+            std::ostringstream res_stream;
+            res_stream << APTA_FILE << ".result";
+            std::ofstream output(res_stream.str().c_str());
+
+            // We stream the to predict traces into inputdata one by one to save memory
+            // Set up the parser for the input stream
+            std::ifstream input_stream(INPUT_FILE);
+            std::unique_ptr<parser> parser;
+            if(INPUT_FILE.ends_with(".csv")) {
+                parser = std::make_unique<csv_parser>(input_stream, csv::CSVFormat().trim({' '}));
+            } else {
+                parser = std::make_unique<abbadingoparser>(input_stream);
+            }
+
+            // Set up the reading strategy. Currently only sliding window and in-order traces are supported
+            // TODO: add support for sentinel symbol reading strategy
+            std::unique_ptr<reader_strategy> strategy;
+            if (SLIDING_WINDOW) {
+                strategy = std::make_unique<slidingwindow>(SLIDING_WINDOW_SIZE, SLIDING_WINDOW_STRIDE, SLIDING_WINDOW_TYPE);
+            } else {
+                strategy = std::make_unique<in_order>();
+            }
+
+            predict_streaming(merger, *parser, *strategy, output);
         } else {
             std::cerr << "require a json formatted apta file to make predictions" << std::endl;
         }
@@ -461,6 +458,8 @@ int main(int argc, char *argv[]){
     app.add_option("--sinkidentical", MERGE_IDENTICAL_SINKS, "Only merge sinks if they have identical suffixes. Default=0.");
     app.add_option("--convertsinks", CONVERT_SINK_STATES, "Instead of merging sinks, convert them to their form defined by the evaluation function (typically a garbage state). Default 0 (false).");
     app.add_option("--extendsinks", EXTEND_SINKS, "Only relevant when mergesinks is set to 1. When set to 1, sinks can be extended (aka, added to the core, colored red). When set to 0, all sinks will be merged with the current core. Default=1.");
+
+    app.add_option("--nrestimators", NR_ESTIMATORS, "Number of estimators (automata) to use for ensembling: default=3");
 
     app.add_option("--finalprob", FINAL_PROBABILITIES, "model final probabilities? if set to 1, distributions are over Sigma*, otherwise over SigmaN. (default: 0)");
     app.add_option("--lowerbound", USE_LOWER_BOUND, "Does the merger use a minimum value of the heuristic function? Set using --lowerboundval. Default=0. Advice: state merging is forced to perform the merge with best heuristic value, it can sometimes be better to color a state red rather then performing a bad merge. This is achieved using a positive lower bound value. Models learned with positive lower bound are frequently more interpretable");

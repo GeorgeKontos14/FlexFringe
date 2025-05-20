@@ -13,6 +13,6 @@
 
 void bagging(state_merger* merger, std::string output_file, int nr_estimators);
 std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators);
-std::vector<state_merger*> tree_random_ensemble(state_merger* merger, int nr_estimators);
+void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file);
 
 #endif /* _ENSEMBLE_H_ */

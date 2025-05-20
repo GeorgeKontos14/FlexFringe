@@ -63,6 +63,7 @@ bool MERGE_IDENTICAL_SINKS = false;
 bool CONVERT_SINK_STATES = false;
 bool EXTEND_SINKS = true;
 bool SINK_TYPE = false;
+int NR_ESTIMATORS = 3;
 
 bool FINAL_PROBABILITIES = 0;
 bool USE_LOWER_BOUND = 0;

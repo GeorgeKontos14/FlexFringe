@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <random>
+#include <stack>
 
 #include "refinement.h"
 #include "greedy.h"
@@ -117,54 +118,83 @@ std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
  *
  * @param merger The state merger object containing the initial APTA
  * @param nr_estimators The number of random DFAs to generate
- * @return A vector containing all the final random automata.
+ * @param output_file The file to which to write the DFAs in json format
  */
-std::vector<state_merger*> tree_random_ensemble(state_merger* merger, int nr_estimators) {
+void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
     // Setup
-    std::vector<state_merger*> E;
-    std::queue<merge_tree*> skipped_nodes;
+    auto cmp = [](merge_tree* a, merge_tree* b) {
+        return a->get_level() > b->get_level();
+    };
+
+    std::vector<std::vector<int>> E;
+    std::priority_queue<merge_tree*, std::vector<merge_tree*>, decltype(cmp)> skipped_nodes(cmp);
     auto root = new merge_tree(nr_estimators);
     std::random_device rd;
     std::mt19937 gen(rd());
+    bool is_reset = false;
+    std::stack<merge_tree*> next_nodes;
+
+    std::string json_filename = output_file +".random.json";
+    std::ostringstream json_stream;
+    json_stream << "{\n";
 
     std::cout << "Entering Phase I" << std::endl;
     // Phase I: First traversal allocation
-    std::vector<merge_tree*> level = {root};
-    while (!level.empty() && E.size() < nr_estimators) {
-        std::vector<merge_tree*> next_level;
-        for (merge_tree* node : level) {
-            if (node->get_is_leaf()) {
-                state_merger* cloned_merger = merger->copy();
-                node->perform_merges(cloned_merger);
-                E.push_back(cloned_merger);
-            } else {
-                node->initialize_children(merger);
-                auto [skipped_children, selected_children] = node->allocate_live();
-
-                for (merge_tree* child : skipped_children) {
-                    skipped_nodes.push(child);
-                }
-
-                for (merge_tree* child : selected_children) {
-                    next_level.push_back(child);
-                }
+    merge_tree* prev_node;
+    next_nodes.push(root);
+    while (!next_nodes.empty() && E.size() < nr_estimators) {
+        merge_tree* node = next_nodes.top();
+        next_nodes.pop();
+        if (is_reset) {
+            prev_node->revert_merges(merger);
+            node->perform_merges(merger);
+        } else {
+            if (node->get_merge() != nullptr) {
+                node->get_merge()->doref(merger);
             }
         }
-        level = next_level;
+        if (node->is_leaf(merger)) {
+            E.push_back(node->get_index_path());
+            merger->tojson();
+            json_stream << " \"Automaton " << E.size() << "\": " << merger->json_output;
+            if (E.size() != nr_estimators) json_stream <<",";
+            json_stream << "\n";
+            std::cout << "Adding DFA #" << E.size() << std::endl;
+            is_reset = true;
+        } else {
+            node->initialize_children(merger);
+            auto [skipped_children, selected_children] = node->allocate_live();
+            for (merge_tree* child: skipped_children) {
+                skipped_nodes.push(child);
+            }
+            for (merge_tree* child: selected_children) {
+                next_nodes.push(child);
+            }
+            is_reset = false;
+        }
+        prev_node = node;
     }
 
     std::cout << "Entering Phase II" << std::endl;
     // Phase II: Allocation of remaining selections
-    int m = nr_estimators - E.size();
-    while(m > 0) {
+    prev_node->revert_merges(merger);
+    int m = nr_estimators-E.size();
+    if (m > 0) {
+        std::cout << "Remaining models: " << m << std::endl;
+    } else {
+        std::cout << "No more models needed" << std::endl;
+    }
+
+    while (m > 0) {
         if (skipped_nodes.empty()) {
             break;
         }
-        merge_tree* current_node = skipped_nodes.front();
+        merge_tree* node = skipped_nodes.top();
         skipped_nodes.pop();
-        while (!current_node->get_is_leaf()) {
-            current_node->initialize_children(merger);
-            int nr_children = current_node->get_children().size();
+        node->perform_merges(merger);
+        while (!node->is_leaf(merger)) {
+            node->initialize_children(merger);
+            int nr_children = node->get_children().size();
             std::uniform_int_distribution<> dist(0, nr_children - 1);
             int allocation = dist(gen);
             int j = 0;
@@ -172,18 +202,27 @@ std::vector<state_merger*> tree_random_ensemble(state_merger* merger, int nr_est
                 if (j == allocation) {
                     continue;
                 }
-                skipped_nodes.push(current_node->get_children()[j]);
+                skipped_nodes.push(node->get_children()[j]);
                 j++;
             }
-            current_node = current_node->get_children()[allocation];
+            node = node->get_children()[allocation];
+            node->get_merge()->doref(merger);
         }
-        state_merger* merger_clone = merger->copy();
-        current_node->perform_merges(merger_clone);
-        E.push_back(merger_clone);
+        E.push_back(node->get_index_path());
+        merger->tojson();
+        json_stream << " \"Automaton " << E.size() << "\": " << merger->json_output;
+        if (E.size() != nr_estimators) json_stream <<",";
+        json_stream << "\n";
+        std::cout << "Adding DFA #" << E.size() << std::endl;
+        node->revert_merges(merger);
         m--;
     }
 
-    delete root;
+    json_stream << "}\n";
+    std::ofstream json_out;
+    json_out.open(json_filename);
+    json_out << json_stream.str();
+    json_out.close();
 
-    return E;
+    delete root;
 }
