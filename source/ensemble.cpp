@@ -112,6 +112,48 @@ std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
     return mergers;
 }
 
+void random_walk_ensemble(state_merger* merger, int nr_estimators, std::string& output_file) {
+    int E = 0;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    std::string json_filename = output_file +".final.random.json";
+    std::ostringstream json_stream;
+    json_stream << "{\n";
+
+    std::vector<refinement*> path;
+    while (E < nr_estimators) {
+        refinement_vector* refs = merger->get_possible_refinements_vector();
+        while (!refs->empty()) {
+            std::uniform_int_distribution<> dist(0, refs->size() - 1);
+            int random_index = dist(gen);
+            refinement* ref = refs->at(random_index);
+            path.push_back(ref);
+            ref->doref(merger);
+            refs = merger->get_possible_refinements_vector();
+        }
+
+        E++;
+        merger->tojson();
+        json_stream << " \"Automaton " << E << "\": " << merger->json_output;
+        if (E != nr_estimators) json_stream <<",";
+        json_stream << "\n";
+        std::cout << "Adding DFA #" << E << std::endl;
+
+        for (int i = path.size() - 1; i >= 0; --i) {
+            refinement* ref = path[i];
+            ref->undo(merger);
+        }
+        path.clear();
+    }
+
+    json_stream << "}\n";
+    std::ofstream json_out;
+    json_out.open(json_filename);
+    json_out << json_stream.str();
+    json_out.close();
+}
+
 /**
  * @brief Ensemble that chooses different merge sequences by creating a tree-like structure
  * In case nr_estimators is larger than the number of possible minimal automata, fewer automata are returned
@@ -120,13 +162,13 @@ std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
  * @param nr_estimators The number of random DFAs to generate
  * @param output_file The file to which to write the DFAs in json format
  */
-void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
+void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
     // Setup
     auto cmp = [](merge_tree* a, merge_tree* b) {
         return a->get_level() > b->get_level();
     };
 
-    std::vector<std::vector<int>> E;
+    int E = 0;
     std::priority_queue<merge_tree*, std::vector<merge_tree*>, decltype(cmp)> skipped_nodes(cmp);
     auto root = new merge_tree(nr_estimators);
     std::random_device rd;
@@ -142,7 +184,7 @@ void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::st
     // Phase I: First traversal allocation
     merge_tree* prev_node;
     next_nodes.push(root);
-    while (!next_nodes.empty() && E.size() < nr_estimators) {
+    while (!next_nodes.empty() && E < nr_estimators) {
         merge_tree* node = next_nodes.top();
         next_nodes.pop();
         if (is_reset) {
@@ -154,12 +196,12 @@ void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::st
             }
         }
         if (node->is_leaf(merger)) {
-            E.push_back(node->get_index_path());
+            E++;
             merger->tojson();
-            json_stream << " \"Automaton " << E.size() << "\": " << merger->json_output;
-            if (E.size() != nr_estimators) json_stream <<",";
+            json_stream << " \"Automaton " << E << "\": " << merger->json_output;
+            if (E != nr_estimators) json_stream <<",";
             json_stream << "\n";
-            std::cout << "Adding DFA #" << E.size() << std::endl;
+            std::cout << "Adding DFA #" << E << std::endl;
             is_reset = true;
         } else {
             node->initialize_children(merger);
@@ -178,7 +220,7 @@ void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::st
     std::cout << "Entering Phase II" << std::endl;
     // Phase II: Allocation of remaining selections
     prev_node->revert_merges(merger);
-    int m = nr_estimators-E.size();
+    int m = nr_estimators-E;
     if (m > 0) {
         std::cout << "Remaining models: " << m << std::endl;
     } else {
@@ -208,12 +250,12 @@ void tree_random_ensemble(state_merger* merger, int nr_estimators, const std::st
             node = node->get_children()[allocation];
             node->get_merge()->doref(merger);
         }
-        E.push_back(node->get_index_path());
+        E++;
         merger->tojson();
-        json_stream << " \"Automaton " << E.size() << "\": " << merger->json_output;
-        if (E.size() != nr_estimators) json_stream <<",";
+        json_stream << " \"Automaton " << E << "\": " << merger->json_output;
+        if (E!= nr_estimators) json_stream <<",";
         json_stream << "\n";
-        std::cout << "Adding DFA #" << E.size() << std::endl;
+        std::cout << "Adding DFA #" << E << std::endl;
         node->revert_merges(merger);
         m--;
     }

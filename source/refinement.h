@@ -61,6 +61,8 @@ public:
     virtual int type();
 
     inline int get_time();
+
+	virtual std::size_t hash() const = 0;
 };
 
 /**
@@ -87,6 +89,7 @@ public:
     virtual void print_json(std::iostream &output) const;
 
     virtual int type();
+	virtual std::size_t hash() const override;
 };
 
  /**
@@ -110,6 +113,7 @@ public:
     virtual void print_json(std::iostream &output) const;
 
     virtual int type();
+	virtual std::size_t hash() const override;
 };
 
 /**
@@ -135,6 +139,7 @@ public:
     virtual void print_json(std::iostream &output) const;
 
     virtual int type();
+	virtual std::size_t hash() const override;
 };
 
  /**

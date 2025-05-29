@@ -173,7 +173,8 @@ void read_input_file(inputdata* id) {
  * 
  * @param param The parameters. 
  */
-void run() {
+void run()
+{
     evaluation_function *eval = get_evaluation();
 
     if(OUTPUT_FILE.empty()) OUTPUT_FILE = INPUT_FILE + ".ff";
@@ -242,15 +243,22 @@ void run() {
         LOG_S(INFO) << "Bagging mode selected, starting run";
 
         bagging(merger, OUTPUT_FILE,10);
-    } else if (OPERATION_MODE == "random") {
-        std::cout << "random mode selected" << std::endl;
+    } else if (OPERATION_MODE == "random_walk") {
+        std::cout << "random walk mode selected" << std::endl;
         eval->initialize_before_adding_traces();
         id.add_traces_to_apta(the_apta);
         eval->initialize_after_adding_traces(merger);
         print_current_automaton(merger, OUTPUT_FILE, ".init");
-        LOG_S(INFO) << "Random mode selected, starting run";
+        LOG_S(INFO) << "Random walk mode selected, starting run";
 
-        tree_random_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
+        random_walk_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
+    }else if (OPERATION_MODE == "random_tree") {
+        std::cout << "random tree mode selected" << std::endl;
+        eval->initialize_before_adding_traces();
+        id.add_traces_to_apta(the_apta);
+        eval->initialize_after_adding_traces(merger);
+        print_current_automaton(merger, OUTPUT_FILE, ".init");
+        tree_two_phase_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;
 
@@ -275,10 +283,8 @@ void run() {
 
             std::vector<state_merger*> mergers;
             apta* next_apta;
-
             for (auto it = all_automata_json.items().begin(); it != all_automata_json.items().end(); ++it) {
                 const auto& value = it.value();
-
                 std::stringstream ss;
                 ss << value.dump();
 

@@ -17,6 +17,7 @@ private:
     std::vector<int> live;
     merge_tree* parent;
     std::vector<merge_tree*> children;
+    std::vector<merge_tree*> pruned_children;
     refinement* merge;
     int level;
     int id;
@@ -36,6 +37,7 @@ public:
     inline int get_id() { return id; }
     inline std::vector<int> get_index_path() { return index_path; }
     inline std::vector<int> get_ancestors() { return ancestors; }
+    inline std::vector<merge_tree*> get_pruned_children() { return pruned_children; }
 
     bool is_root();
     bool is_empty();
@@ -48,6 +50,7 @@ public:
     void revert_merges(state_merger* merger);
     void revert_merges(state_merger* merger, int nr_steps);
     void initialize_children(state_merger* merger);
+    void initialize_children(state_merger* merger, std::set<std::size_t> performed);
     std::pair<std::vector<merge_tree*>, std::vector<merge_tree*>> allocate_live();
     std::map<int, int> generate_allocation();
     std::pair<int, int> find_common_ancestor(merge_tree* other);

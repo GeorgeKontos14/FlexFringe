@@ -340,3 +340,28 @@ inline int refinement::get_time(){
     return time;
 }
 
+inline void hash_combine(std::size_t& seed, std::size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+std::size_t merge_refinement::hash() const {
+    std::size_t seed = 0;
+    hash_combine(seed, 2);
+    hash_combine(seed, static_cast<std::size_t>(red->get_number()));
+    hash_combine(seed, static_cast<std::size_t>(blue->get_number()));
+    return seed;
+}
+
+std::size_t extend_refinement::hash() const {
+    std::size_t seed = 0;
+    hash_combine(seed, 1);
+    hash_combine(seed, static_cast<std::size_t>(red->get_number()));
+    return seed;
+}
+
+std::size_t split_refinement::hash() const {
+    std::size_t seed = 0;
+    hash_combine(seed, 3);
+    hash_combine(seed, static_cast<std::size_t>(red->get_number()));
+    return seed;
+}

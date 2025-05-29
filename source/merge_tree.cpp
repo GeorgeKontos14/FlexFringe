@@ -162,6 +162,21 @@ void merge_tree::initialize_children(state_merger* merger) {
 }
 
 
+void merge_tree::initialize_children(state_merger* merger, std::set<std::size_t> performed) {
+    refinement_vector* possible_merges = merger->get_possible_refinements_vector();
+    for (int i = 0; i < possible_merges->size(); i++) {
+        refinement* next_merge = possible_merges->at(i);
+        merge_tree* child;
+        child = new merge_tree(this, next_merge, i);
+        if (performed.contains(next_merge->hash())) {
+            pruned_children.push_back(child);
+        } else {
+            children.push_back(child);
+        }
+    }
+}
+
+
 /**
  * @brief Adds a live selection to the current node
  *

@@ -495,7 +495,7 @@ void predict_trace(state_merger* m, std::ofstream& output, trace* tr){
  * @param tr The trace whose type should be predicted
  * @return The type prediction of the automation for the given trace
  */
-int predict_trace_type(state_merger* m, trace* tr) {
+double predict_trace_type(state_merger* m, trace* tr) {
     if(REVERSE_TRACES) tr->reverse();
     state_sequence.clear();
     score_sequence.clear();
@@ -509,7 +509,12 @@ int predict_trace_type(state_merger* m, trace* tr) {
         predict_trace_update_sequences(m, tr->get_head());
     }
 
-    int type_predict = ending_state->get_data()->predict_type(ending_tail);
+    double type_predict;
+    if (ending_state != nullptr) {
+        type_predict = ending_state->get_data()->predict_type(ending_tail);
+    } else {
+        type_predict = -1;
+    }
 
     return type_predict;
 }
@@ -520,13 +525,17 @@ int predict_trace_type(state_merger* m, trace* tr) {
  * @param predictions The predictions to aggregate
  * @return The most popular prediction
  */
-int majority_vote(std::vector<int> predictions) {
-    int count_ones = 0;
-    for (int val: predictions) {
-        count_ones += val;
+int majority_vote(std::vector<double> predictions) {
+    double count_ones = 0;
+    double count_skips = 0;
+    for (double val: predictions) {
+        if (val == -1)
+            count_skips++;
+        else
+            count_ones += val;
     }
 
-    int count_zeros = predictions.size()-count_ones;
+    double count_zeros = (double) predictions.size()-count_ones-count_skips;
 
     return (count_ones > count_zeros) ? 1: 0;
 }
@@ -594,12 +603,11 @@ void predict_streaming_random_ensemble(std::vector<state_merger*> mergers, parse
     int rownr = 0;
     while (trace_maybe) {
         auto trace = *trace_maybe;
-        std::vector<int> tr_predictions;
+        std::vector<double> tr_predictions;
         for (state_merger* m: mergers) {
-            int tr_type = predict_trace_type(m, trace);
+            double tr_type = predict_trace_type(m, trace);
             tr_predictions.push_back(tr_type);
         }
-
         int ensemble_prediction = majority_vote(tr_predictions);
 
         output << rownr << "; " << "\"" << trace->to_string() << "\"";
