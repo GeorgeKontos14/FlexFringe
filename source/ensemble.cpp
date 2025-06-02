@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <random>
 #include <stack>
+#include <unordered_set>
 
 #include "refinement.h"
 #include "greedy.h"
@@ -50,68 +51,12 @@ void bagging(state_merger* merger, std::string output_file, int nr_estimators){
 };
 
 /**
- * @Brief Ensemble that chooses random state merges without a suitability metric
+ * @brief Creates an ensemble by independently performing random sequences of merges
  *
- * @param merger The state merger object containing the initial APTA
- * @param nr_estimators The number of random DFAs to generate
- * @return A vector of size nr_estimators containing all the final random automata
+ * @param merger the state merger object that includes the original APTA
+ * @param nr_estimators the number of DFAs to construct
+ * @param output_file the file in which to write the output automata
  */
-std::vector<state_merger*> random_dfa(state_merger* merger, int nr_estimators){
-    std::cerr << "starting random DFA" << std::endl;
-
-    // Initialize objects used in the loops
-    refinement_list* refs_list;
-    refinement* selected_ref;
-    apta* the_apta;
-
-    // Initialize the random number generator
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    std::vector<state_merger*> mergers;
-
-    // Each loop iteration creates a new random estimator
-    for(int i = 0; i < nr_estimators; ++i) {
-        std::cout << "Building random estimator "<< i << std::endl;
-
-        // Build the initial APTA again using the input data
-        state_merger* merger_clone = merger->copy();
-
-        // Generate all the possible changes to the initial APTA
-        refs_list = merger_clone->get_possible_refinements_list();
-
-        // Perform (feasible) merges until a minimal automaton is reached
-        while (!refs_list->empty()) {
-            // Randomly select a refinement
-            std::uniform_int_distribution<> dist(0, refs_list->size() - 1);
-            int random_index = dist(gen);
-            auto it = refs_list->begin();
-            std::advance(it, random_index);
-            selected_ref = *it;
-
-            // Print the selected refinement
-            std::cout << " ";
-            selected_ref->print_short();
-            std::cout << " ";
-            std::cout.flush();
-
-            // Perform the refinement on the automaton
-            selected_ref->doref(merger_clone);
-
-            delete selected_ref;
-            delete refs_list;
-
-            // Generate all the possible changes to the new APTA
-            refs_list = merger_clone->get_possible_refinements_list();
-        }
-        std::cout << "no more possible merges" << std::endl;
-
-        mergers.push_back(merger_clone);
-    }
-
-    return mergers;
-}
-
 void random_walk_ensemble(state_merger* merger, int nr_estimators, std::string& output_file) {
     int E = 0;
     std::random_device rd;
@@ -155,14 +100,13 @@ void random_walk_ensemble(state_merger* merger, int nr_estimators, std::string& 
 }
 
 /**
- * @brief Ensemble that chooses different merge sequences by creating a tree-like structure
- * In case nr_estimators is larger than the number of possible minimal automata, fewer automata are returned
+ * @brief Creates an ensemble by performing a balanced merge tree exploration
  *
- * @param merger The state merger object containing the initial APTA
- * @param nr_estimators The number of random DFAs to generate
- * @param output_file The file to which to write the DFAs in json format
+ * @param merger the state merger object that includes the original APTA
+ * @param nr_estimators the number of DFAs to construct
+ * @param output_file the file in which to write the output automata
  */
-void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
+void tree_balanced_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
     // Setup
     auto cmp = [](merge_tree* a, merge_tree* b) {
         return a->get_level() > b->get_level();
@@ -184,18 +128,41 @@ void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std:
     // Phase I: First traversal allocation
     merge_tree* prev_node;
     next_nodes.push(root);
-    while (!next_nodes.empty() && E < nr_estimators) {
-        merge_tree* node = next_nodes.top();
-        next_nodes.pop();
-        if (is_reset) {
-            prev_node->revert_merges(merger);
-            node->perform_merges(merger);
+
+    auto init_children = [](merge_tree* node, state_merger* merger)
+    {
+        node->initialized = true;
+        refinement_vector* possible_merges = merger->get_possible_refinements_vector();
+        if (possible_merges->empty()) {
+            node->is_leaf = true;
         } else {
-            if (node->get_merge() != nullptr) {
-                node->get_merge()->doref(merger);
+            for (int i = 0; i < possible_merges->size(); ++i) {
+                refinement* ref = possible_merges->at(i);
+                auto child = new merge_tree(node, ref);
+                node->children.push_back(child);
             }
         }
-        if (node->is_leaf(merger)) {
+    };
+    merge_tree* node;
+
+    while (E < nr_estimators && !next_nodes.empty()) {
+        // Pop the next node to process
+        node = next_nodes.top();
+        next_nodes.pop();
+
+        // Transform the APTA to the corresponding state
+        if (!node->is_root) {
+            if (is_reset)
+                prev_node->transform(node, merger);
+            else
+                node->get_merge()->doref(merger);
+        }
+
+        // Initialize the node's children if necessary
+        if (!node->initialized) init_children(node, merger);
+
+        // If the node is a leaf, add the DFA to the ensemble and mark the merges as performed
+        if (node->is_leaf) {
             E++;
             merger->tojson();
             json_stream << " \"Automaton " << E << "\": " << merger->json_output;
@@ -203,18 +170,18 @@ void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std:
             json_stream << "\n";
             std::cout << "Adding DFA #" << E << std::endl;
             is_reset = true;
-        } else {
-            node->initialize_children(merger);
-            auto [skipped_children, selected_children] = node->allocate_live();
-            for (merge_tree* child: skipped_children) {
-                skipped_nodes.push(child);
+
+        } else { // Allocate the live selections across the children of the node and add all children with live selections to the stack
+            node->allocate_live();
+            for (int index: node->get_selected_children()) next_nodes.push(node->children[index]);
+            for (int index: node->get_skipped_children()) {
+                if (skipped_nodes.size() >= 5000) break;
+                skipped_nodes.push(node->children[index]);
             }
-            for (merge_tree* child: selected_children) {
-                next_nodes.push(child);
-            }
-            is_reset = false;
+                is_reset = false;
         }
-        prev_node = node;
+
+        prev_node = node; // Remember the last node in the next iteration in order to transform the apta
     }
 
     std::cout << "Entering Phase II" << std::endl;
@@ -231,10 +198,10 @@ void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std:
         if (skipped_nodes.empty()) {
             break;
         }
-        merge_tree* node = skipped_nodes.top();
+        node = skipped_nodes.top();
         skipped_nodes.pop();
         node->perform_merges(merger);
-        while (!node->is_leaf(merger)) {
+        while (!node->is_leaf) {
             node->initialize_children(merger);
             int nr_children = node->get_children().size();
             std::uniform_int_distribution<> dist(0, nr_children - 1);
@@ -258,6 +225,129 @@ void tree_two_phase_ensemble(state_merger* merger, int nr_estimators, const std:
         std::cout << "Adding DFA #" << E << std::endl;
         node->revert_merges(merger);
         m--;
+    }
+
+    json_stream << "}\n";
+    std::ofstream json_out;
+    json_out.open(json_filename);
+    json_out << json_stream.str();
+    json_out.close();
+
+    delete root;
+}
+
+/**
+ * @brief Creates an ensemble by performing a balanced merge tree exploration with branch pruning
+ *
+ * @param merger the state merger object that includes the original APTA
+ * @param nr_estimators the number of DFAs to construct
+ * @param output_file the file in which to write the output automata
+ */
+void tree_pruning_ensemble(state_merger* merger, int nr_estimators, const std::string& output_file) {
+    struct refinement_ptr_hash {
+        std::size_t operator()(const refinement* r) const {
+            return r->hash();
+        }
+    };
+
+    struct refinement_ptr_equal {
+        bool operator()(const refinement* a, const refinement* b) const {
+            if (a == b) return true;  // Fast path for identical pointers
+            if (!a || !b) return false;  // Handle null pointers
+
+            if (typeid(*a) != typeid(*b)) return false;
+
+            if (auto ea = dynamic_cast<const extend_refinement*>(a)) {
+                auto eb = dynamic_cast<const extend_refinement*>(b);
+                return ea->red->get_number() == eb->red->get_number();
+            }
+
+            if (auto ma = dynamic_cast<const merge_refinement*>(a)) {
+                auto mb = dynamic_cast<const merge_refinement*>(b);
+                return ma->red->get_number() == mb->red->get_number() && ma->blue->get_number() == mb->blue->get_number();
+            }
+
+            if (auto sa = dynamic_cast<const split_refinement*>(a)) {
+                auto sb = dynamic_cast<const split_refinement*>(b);
+                return sa->red->get_number() == sb->red->get_number();
+            }
+
+            return false;
+        }
+    };
+
+    auto init_children = [](merge_tree* node, state_merger* merger,
+                                const std::unordered_set<refinement*, refinement_ptr_hash, refinement_ptr_equal>& performed)
+    {
+        node->initialized = true;
+        refinement_vector* possible_merges = merger->get_possible_refinements_vector();
+        if (possible_merges->empty()) {
+            node->is_leaf = true;
+        } else {
+            for (int i = 0; i < possible_merges->size(); ++i) {
+                refinement* ref = possible_merges->at(i);
+                if (!performed.contains(ref)) {
+                    auto child = new merge_tree(node, ref);
+                    node->children.push_back(child);
+                }
+            }
+        }
+    };
+
+    int E = 0;
+
+    auto root = new merge_tree(nr_estimators);
+    bool is_reset = false;
+    std::stack<merge_tree*> next_nodes;
+    std::unordered_set<refinement*, refinement_ptr_hash, refinement_ptr_equal> memory;
+
+    std::string json_filename = output_file +".random.json";
+    std::ostringstream json_stream;
+    json_stream << "{\n";
+
+    merge_tree* node;
+    merge_tree* prev_node;
+    next_nodes.push(root);
+
+    while (E < nr_estimators && !next_nodes.empty()) {
+        // Pop the next node to process
+        node = next_nodes.top();
+        next_nodes.pop();
+
+        // Transform the APTA to the corresponding state
+        if (!node->is_root) {
+            if (is_reset)
+                prev_node->transform(node, merger);
+            else
+                node->get_merge()->doref(merger);
+        }
+
+        // Initialize the node's children if necessary
+        if (!node->initialized) init_children(node, merger, memory);
+
+        // If the node is a leaf, add the DFA to the ensemble and mark the merges as performed
+        if (node->is_leaf) {
+            E++;
+            std::vector<refinement*> path = node->get_path();
+            for (refinement* ref: path) {
+                memory.insert(ref);
+            }
+            merger->tojson();
+            json_stream << " \"Automaton " << E << "\": " << merger->json_output;
+            if (E != nr_estimators) json_stream <<",";
+            json_stream << "\n";
+            std::cout << "Adding DFA #" << E << std::endl;
+            is_reset = true;
+
+        } else if (node->children.empty()) { // If all the children of the current node are pruned, pivot to a skipped node and add it to the stack
+            is_reset = true;
+        } else { // Allocate the live selections across the children of the node and add all children with live selections to the stack
+            node->allocate_live();
+            for (int index: node->get_selected_children()) next_nodes.push(node->children[index]);
+            is_reset = false;
+        }
+
+        prev_node = node; // Remember the last node in the next iteration in order to transform the apta
     }
 
     json_stream << "}\n";

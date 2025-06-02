@@ -243,7 +243,8 @@ void run()
         LOG_S(INFO) << "Bagging mode selected, starting run";
 
         bagging(merger, OUTPUT_FILE,10);
-    } else if (OPERATION_MODE == "random_walk") {
+    } else if (OPERATION_MODE == "random_walk")
+    {
         std::cout << "random walk mode selected" << std::endl;
         eval->initialize_before_adding_traces();
         id.add_traces_to_apta(the_apta);
@@ -252,13 +253,21 @@ void run()
         LOG_S(INFO) << "Random walk mode selected, starting run";
 
         random_walk_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
-    }else if (OPERATION_MODE == "random_tree") {
+    }else if (OPERATION_MODE == "random_tree")
+    {
         std::cout << "random tree mode selected" << std::endl;
         eval->initialize_before_adding_traces();
         id.add_traces_to_apta(the_apta);
         eval->initialize_after_adding_traces(merger);
         print_current_automaton(merger, OUTPUT_FILE, ".init");
-        tree_two_phase_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
+        tree_balanced_ensemble(merger, NR_ESTIMATORS, OUTPUT_FILE);
+    } else if (OPERATION_MODE == "random_prune") {
+        std::cout << "random prune mode selected" << std::endl;
+        eval->initialize_before_adding_traces();
+        id.add_traces_to_apta(the_apta);
+        eval->initialize_after_adding_traces(merger);
+        print_current_automaton(merger, OUTPUT_FILE, ".init");
+        tree_pruning_ensemble(merger, NR_ESTIMATORS,OUTPUT_FILE);
     } else if(OPERATION_MODE == "interactive") {
         std::cout << "interactive mode selected" << std::endl;
 

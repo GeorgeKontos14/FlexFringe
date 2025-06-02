@@ -5,6 +5,7 @@
 #ifndef MERGE_TREE_H
 #define MERGE_TREE_H
 
+#include <unordered_set>
 #include <vector>
 
 #include "refinement.h"
@@ -16,32 +17,34 @@ private:
     static int id_counter;
     std::vector<int> live;
     merge_tree* parent;
-    std::vector<merge_tree*> children;
-    std::vector<merge_tree*> pruned_children;
     refinement* merge;
     int level;
     int id;
-    std::vector<int> index_path;
-    std::vector<int> ancestors;
+    std::vector<int> idpath;
+    std::vector<int> selected_children;
+    std::vector<int> skipped_children;
 
 public:
     merge_tree(int n);
-    merge_tree(merge_tree* parent_node, refinement* ref, int merge_ind);
+    merge_tree(merge_tree* parent_node, refinement* ref);
     ~merge_tree();
+    std::vector<merge_tree*> children;
+    bool pruned;
+    bool initialized;
+    bool is_leaf;
+    bool is_root;
 
     inline std::vector<int> get_live() { return live; }
     inline merge_tree* get_parent() { return parent; }
     inline std::vector<merge_tree*> get_children() { return children; }
     inline int get_level() { return level; }
     inline refinement* get_merge() { return merge; }
-    inline int get_id() { return id; }
-    inline std::vector<int> get_index_path() { return index_path; }
-    inline std::vector<int> get_ancestors() { return ancestors; }
-    inline std::vector<merge_tree*> get_pruned_children() { return pruned_children; }
+    inline int get_id() const { return id; }
+    inline std::vector<int> get_id_path() { return idpath; }
+    inline std::vector<int> get_selected_children() { return selected_children; }
+    inline std::vector<int> get_skipped_children() { return skipped_children; }
 
-    bool is_root();
     bool is_empty();
-    bool is_leaf(state_merger* merger);
     std::vector<refinement*> get_path();
     std::vector<refinement*> get_path(int nr_steps);
     void add_live(int index);
@@ -50,12 +53,12 @@ public:
     void revert_merges(state_merger* merger);
     void revert_merges(state_merger* merger, int nr_steps);
     void initialize_children(state_merger* merger);
-    void initialize_children(state_merger* merger, std::set<std::size_t> performed);
-    std::pair<std::vector<merge_tree*>, std::vector<merge_tree*>> allocate_live();
+    void allocate_live();
+    merge_tree* pivot();
+    void update_children();
+    void transform(merge_tree* other, state_merger* merger);
     std::map<int, int> generate_allocation();
-    std::pair<int, int> find_common_ancestor(merge_tree* other);
 };
-
 
 
 #endif //MERGE_TREE_H

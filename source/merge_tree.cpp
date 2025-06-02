@@ -24,6 +24,11 @@ merge_tree::merge_tree(int n) {
     }
     level = 0;
     id = id_counter++;
+    idpath.push_back(id);
+    initialized = false;
+    is_leaf = false;
+    is_root = true;
+    pruned = false;
 }
 
 /**
@@ -31,35 +36,18 @@ merge_tree::merge_tree(int n) {
  *
  * @param parent_node the node's parent
  * @param ref the last merge performed to reach the node
- * @param merge_ind the index of the merge that was followed from the parent to arrive to this node
  */
-merge_tree::merge_tree(merge_tree* parent_node, refinement* ref, int merge_ind) {
+merge_tree::merge_tree(merge_tree* parent_node, refinement* ref) {
     parent = parent_node;
     merge = ref;
     level = parent->get_level() + 1;
     id = id_counter++;
-    ancestors = parent->get_ancestors();
-    ancestors.push_back(parent_node->get_id());
-    index_path = parent_node->get_index_path();
-    index_path.push_back(merge_ind);
-}
-
-/**
- *
- * @return True if the current node is the root; false otherwise
- */
-bool merge_tree::is_root() {
-    return parent == nullptr;
-}
-
-/**
- *
- * @param merger The state merger in the state of the current node
- * @return True if no merges are possible; false otherwise
- */
-bool merge_tree::is_leaf(state_merger* merger) {
-    refinement_vector* possible_merges = merger->get_possible_refinements_vector();
-    return possible_merges->empty();
+    idpath = parent->get_id_path();
+    idpath.push_back(id);
+    initialized = false;
+    is_leaf = false;
+    is_root = false;
+    pruned = false;
 }
 
 /**
@@ -152,25 +140,14 @@ void merge_tree::revert_merges(state_merger* merger, int nr_steps) {
  * @param merger the original merger
  */
 void merge_tree::initialize_children(state_merger* merger) {
+    initialized = true;
     refinement_vector* possible_merges = merger->get_possible_refinements_vector();
-    for (int i = 0; i < possible_merges->size(); i++) {
-        refinement* next_merge = possible_merges->at(i);
-        merge_tree* child;
-        child = new merge_tree(this, next_merge, i);
-        children.push_back(child);
-    }
-}
-
-
-void merge_tree::initialize_children(state_merger* merger, std::set<std::size_t> performed) {
-    refinement_vector* possible_merges = merger->get_possible_refinements_vector();
-    for (int i = 0; i < possible_merges->size(); i++) {
-        refinement* next_merge = possible_merges->at(i);
-        merge_tree* child;
-        child = new merge_tree(this, next_merge, i);
-        if (performed.contains(next_merge->hash())) {
-            pruned_children.push_back(child);
-        } else {
+    if (possible_merges->empty()) {
+        is_leaf = true;
+    } else {
+        for (int i = 0; i < possible_merges->size(); i++) {
+            refinement* next_merge = possible_merges->at(i);
+            auto child = new merge_tree(this, next_merge);
             children.push_back(child);
         }
     }
@@ -200,26 +177,37 @@ bool merge_tree::is_empty() {
  *
  * @return A vector containing all the empty children and a vector containing all the non-empty children
  */
-std::pair<std::vector<merge_tree*>, std::vector<merge_tree*>> merge_tree::allocate_live() {
-    std::map<int, int> allocation = generate_allocation();
-    std::vector<merge_tree*> skipped_merges;
-    std::vector<merge_tree*> selected_merges;
+void merge_tree::allocate_live() {
+    if (live.size() == 0)
+        return;
 
-    for (auto it = allocation.begin(); it != allocation.end(); it++) {
-        int selection = it->first;
-        int child_ind = it->second;
-        children[child_ind]->add_live(selection);
-    }
+    if (live.size() == 1) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(0, children.size() - 1);
+        int selected_index = dist(gen);
+        merge_tree* selected_child = children[selected_index];
+        selected_child->add_live(live[0]);
+        selected_children.push_back(selected_index);
+        for (int i = 0; i < children.size(); i++) {
+            if (i != selected_index) skipped_children.push_back(i);
+        }
+    } else {
+        std::map<int, int> allocation = generate_allocation();
+        for (auto it = allocation.begin(); it != allocation.end(); it++) {
+            int selection = it->first;
+            int child_ind = it->second;
+            children[child_ind]->add_live(selection);
+            selected_children.push_back(child_ind);
+        }
 
-    for (merge_tree* child : children) {
-        if (child->is_empty()) {
-            skipped_merges.push_back(child);
-        } else {
-            selected_merges.push_back(child);
+        std::vector<bool> selected(children.size(), false);
+        for (int ind: selected_children) selected[ind] = true;
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!selected[i]) skipped_children.push_back(i);
         }
     }
-
-    return std::make_pair(skipped_merges, selected_merges);
 }
 
 /**
@@ -255,41 +243,29 @@ std::map<int, int> merge_tree::generate_allocation() {
 }
 
 /**
- * @brief finds the distance of the current node and a different node from their deepest common ancestor
+ * @brief Transforms the DFA corresponding to this node to a DFA corresponding to a different node, by reverting and re-applying merges
  *
- * @param other a different node of the same tree
- * @return the distance from this to the common ancestor; the distance from other to the common ancestor
+ * @param other The destination node
+ * @param merger The state merger object containing the DFA corresponding to this node
  */
-std::pair<int, int> merge_tree::find_common_ancestor(merge_tree* other) {
-    std::vector<int> other_ancestors = other->get_ancestors();
-    int i = static_cast<int>(ancestors.size())-1;
-    int j = static_cast<int>(other_ancestors.size())-1;
-
-    int this_level = level;
-    int other_level = other->get_level();
-
-    while (this_level > other_level) {
-        --i;
-        --this_level;
+void merge_tree::transform(merge_tree* other, state_merger* merger) {
+    std::vector<int> other_idpath = other->get_id_path();
+    int shortest_len = std::min(idpath.size(), other_idpath.size());
+    int target = shortest_len-1;
+    while (target > 0) {
+        if (idpath[target] == other_idpath[target]) break;
+        target--;
     }
-    while (this_level < other_level) {
-        --j;
-        --other_level;
+    if (target == 0) {
+        revert_merges(merger);
+        other->perform_merges(merger);
+    } else {
+        int steps_this = idpath.size()-target-1;
+        int steps_other = other_idpath.size()-target-1;
+        revert_merges(merger, steps_this);
+        other->perform_merges(merger, steps_other);
     }
-
-    while (i >= 0 && j >= 0)
-    {
-        if (ancestors[i] == other_ancestors[j]) {
-            int steps_this = static_cast<int>(ancestors.size() - i - 1);
-            int steps_other = static_cast<int>(other_ancestors.size() - j - 1);
-            return std::make_pair(steps_this, steps_other);
-        }
-        --i;
-        --j;
-    }
-    return std::make_pair(-1, -1);
 }
-
 
 merge_tree::~merge_tree() {
     for (merge_tree* child : children) {
