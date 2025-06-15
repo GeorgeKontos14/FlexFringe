@@ -174,58 +174,12 @@ void tree_balanced_ensemble(state_merger* merger, int nr_estimators, const std::
         } else { // Allocate the live selections across the children of the node and add all children with live selections to the stack
             node->allocate_live();
             for (int index: node->get_selected_children()) next_nodes.push(node->children[index]);
-            for (int index: node->get_skipped_children()) {
-                if (skipped_nodes.size() >= 5000) break;
-                skipped_nodes.push(node->children[index]);
-            }
-                is_reset = false;
+            is_reset = false;
         }
 
         prev_node = node; // Remember the last node in the next iteration in order to transform the apta
     }
 
-    std::cout << "Entering Phase II" << std::endl;
-    // Phase II: Allocation of remaining selections
-    prev_node->revert_merges(merger);
-    int m = nr_estimators-E;
-    if (m > 0) {
-        std::cout << "Remaining models: " << m << std::endl;
-    } else {
-        std::cout << "No more models needed" << std::endl;
-    }
-
-    while (m > 0) {
-        if (skipped_nodes.empty()) {
-            break;
-        }
-        node = skipped_nodes.top();
-        skipped_nodes.pop();
-        node->perform_merges(merger);
-        while (!node->is_leaf) {
-            node->initialize_children(merger);
-            int nr_children = node->get_children().size();
-            std::uniform_int_distribution<> dist(0, nr_children - 1);
-            int allocation = dist(gen);
-            int j = 0;
-            while (j < nr_children && skipped_nodes.size() < m) {
-                if (j == allocation) {
-                    continue;
-                }
-                skipped_nodes.push(node->get_children()[j]);
-                j++;
-            }
-            node = node->get_children()[allocation];
-            node->get_merge()->doref(merger);
-        }
-        E++;
-        merger->tojson();
-        json_stream << " \"Automaton " << E << "\": " << merger->json_output;
-        if (E!= nr_estimators) json_stream <<",";
-        json_stream << "\n";
-        std::cout << "Adding DFA #" << E << std::endl;
-        node->revert_merges(merger);
-        m--;
-    }
 
     json_stream << "}\n";
     std::ofstream json_out;

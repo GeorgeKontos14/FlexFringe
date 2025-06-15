@@ -495,7 +495,7 @@ void predict_trace(state_merger* m, std::ofstream& output, trace* tr){
  * @param tr The trace whose type should be predicted
  * @return The type prediction of the automation for the given trace
  */
-double predict_trace_type(state_merger* m, trace* tr) {
+int predict_trace_type(state_merger* m, trace* tr) {
     if(REVERSE_TRACES) tr->reverse();
     state_sequence.clear();
     score_sequence.clear();
@@ -509,7 +509,7 @@ double predict_trace_type(state_merger* m, trace* tr) {
         predict_trace_update_sequences(m, tr->get_head());
     }
 
-    double type_predict;
+    int type_predict;
     if (ending_state != nullptr) {
         type_predict = ending_state->get_data()->predict_type(ending_tail);
     } else {
@@ -525,17 +525,17 @@ double predict_trace_type(state_merger* m, trace* tr) {
  * @param predictions The predictions to aggregate
  * @return The most popular prediction
  */
-int majority_vote(std::vector<double> predictions) {
-    double count_ones = 0;
-    double count_skips = 0;
-    for (double val: predictions) {
+int majority_vote(std::vector<int> predictions) {
+    int count_ones = 0;
+    int count_skips = 0;
+    for (int val: predictions) {
         if (val == -1)
             count_skips++;
         else
             count_ones += val;
     }
 
-    double count_zeros = (double) predictions.size()-count_ones-count_skips;
+    int count_zeros = predictions.size()-count_ones-count_skips;
 
     return (count_ones > count_zeros) ? 1: 0;
 }
@@ -583,7 +583,7 @@ void predict_streaming(state_merger* m, parser& parser, reader_strategy& strateg
 }
 
 /**
- * @Brief Performs ensemble predictions using majority vote.
+ * @brief Performs ensemble predictions using majority vote.
  * Each automaton in the ensemble makes a prediction of its own, and then predictions are aggregated by majority vote
  * For each automaton, this method only calculates the predicted type.
  *
@@ -603,9 +603,9 @@ void predict_streaming_random_ensemble(std::vector<state_merger*> mergers, parse
     int rownr = 0;
     while (trace_maybe) {
         auto trace = *trace_maybe;
-        std::vector<double> tr_predictions;
+        std::vector<int> tr_predictions;
         for (state_merger* m: mergers) {
-            double tr_type = predict_trace_type(m, trace);
+            int tr_type = predict_trace_type(m, trace);
             tr_predictions.push_back(tr_type);
         }
         int ensemble_prediction = majority_vote(tr_predictions);
@@ -614,6 +614,42 @@ void predict_streaming_random_ensemble(std::vector<state_merger*> mergers, parse
         rownr++;
         output << "; " << inputdata_locator::get()->string_from_type(trace->get_type());
         output << "; " << inputdata_locator::get()->string_from_type(ensemble_prediction);
+        output << std::endl;
+
+        trace->erase();
+        trace_maybe = idat.read_trace(parser, strategy);
+    }
+}
+
+/**
+ * @brief Calculates the predictions of each individual automaton in the ensemble and writes the ouptus in a file
+ *
+ * @param mergers The list of automata to use for predictions
+ * @param parser The object traversing the traces that should be predicted
+ * @param strategy The way the parser should traverse the traces
+ * @param output The output stream to print the predictions in
+ */
+void predict_streaming_ensemble_individual(std::vector<state_merger*> mergers, parser& parser, reader_strategy& strategy, std::ofstream& output) {
+    output << "row nr";
+    for (int i = 1; i <= mergers.size(); i++) {
+        output << ";DFA #" << i;
+    }
+    output << std::endl;
+
+    inputdata idat = inputdata::with_alphabet_from(*inputdata_locator::get());
+
+    std::optional<trace*> trace_maybe = idat.read_trace(parser, strategy);
+
+    int rownr = 0;
+    while (trace_maybe) {
+        auto trace = *trace_maybe;
+
+        output << rownr<< ";";
+        for (state_merger* m: mergers) {
+            int tr_type = predict_trace_type(m, trace);
+            output << ";" << tr_type;
+        }
+        rownr++;
         output << std::endl;
 
         trace->erase();

@@ -306,7 +306,12 @@ void run()
 
             // Setup output file stream
             std::ostringstream res_stream;
-            res_stream << ENSEMBLE_FILE << ".result";
+            if (PREDICT_INDIVIDUAL) {
+                res_stream << ENSEMBLE_FILE << ".individual";
+            } else {
+                res_stream << ENSEMBLE_FILE << ".result";
+            }
+
             std::ofstream output(res_stream.str().c_str());
 
             std::ifstream input_stream(INPUT_FILE);
@@ -324,7 +329,10 @@ void run()
                 strategy = std::make_unique<in_order>();
             }
 
-            predict_streaming_random_ensemble(mergers, *parser, *strategy, output);
+            if (PREDICT_INDIVIDUAL)
+                predict_streaming_ensemble_individual(mergers, *parser, *strategy, output);
+            else
+                predict_streaming_random_ensemble(mergers, *parser, *strategy, output);
         } else if(!APTA_FILE.empty()){
 
             // First, we read the apta file into the global inputdata, so we can obtain the alphabet mapping
@@ -520,6 +528,7 @@ int main(int argc, char *argv[]){
     app.add_option("--predictsymbol", PREDICT_SYMBOL, "Predicting calls the predict symbol functions from the evaluation function. Default=0.");
     app.add_option("--predicttrace", PREDICT_TRACE, "Predicting calls the predict trace functions from the evaluation function. Default=1.");
     app.add_option("--predictdata", PREDICT_TRACE, "Predicting calls the predict data functions from the evaluation function. Default=0.");
+    app.add_option("--predictindividual", PREDICT_INDIVIDUAL, "Predicting the output of each individual model in the ensemble. Default=0.");
 
     app.add_option("--aligndistancepenalty", ALIGN_DISTANCE_PENALTY, "A penalty for jumping during alignment multiplied by the merged prefix tree distance. Default: 0.0.");
     app.add_option("--alignskippenalty", ALIGN_SKIP_PENALTY, "A penalty for skipping during alignment. Default: 0.0.");

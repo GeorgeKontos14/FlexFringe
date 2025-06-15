@@ -97,6 +97,7 @@ extern bool PREDICT_TYPE;
 extern bool PREDICT_TYPE_PATH;
 extern bool PREDICT_SYMBOL;
 extern bool PREDICT_TRACE;
+extern bool PREDICT_INDIVIDUAL;
 
 extern double ALIGN_SKIP_PENALTY;
 extern double ALIGN_DISTANCE_PENALTY;

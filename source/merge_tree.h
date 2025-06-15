@@ -60,5 +60,4 @@ public:
     std::map<int, int> generate_allocation();
 };
 
-
 #endif //MERGE_TREE_H
